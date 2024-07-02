@@ -15,7 +15,7 @@ const chatwriteController = async (roomid, senderid, receiverid, message) => {
     console.log(chatresult);
 
     // Emit event to notify clients about the new message
-    io.to(roomid).emit("newMessage", chatresult);
+    await io.to(roomid).emit("newMessage", chatresult);
 
     return "Message sent successfully";
   } catch (err) {
