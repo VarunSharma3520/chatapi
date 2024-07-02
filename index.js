@@ -1,6 +1,8 @@
 const express = require("express");
+const http = require("http");
 const mongoose = require("mongoose");
 const chat = require("./chat.models.js");
+const { Server } = require("socket.io");
 
 const chatwriteController = async (roomid, senderid, receiverid, message) => {
   try {
@@ -11,6 +13,10 @@ const chatwriteController = async (roomid, senderid, receiverid, message) => {
       message: message,
     });
     console.log(chatresult);
+
+    // Emit event to notify clients about the new message
+    io.to(roomid).emit("newMessage", chatresult);
+
     return "Message sent successfully";
   } catch (err) {
     console.log(err);
@@ -18,15 +24,9 @@ const chatwriteController = async (roomid, senderid, receiverid, message) => {
   }
 };
 
-const chatreadController = async (
-  roomid,
-  senderid,
-  receiverid,
-  index,
-  offset
-) => {
+const chatreadController = async (roomid, senderid, receiverid, index, offset) => {
   try {
-    const message = await chat
+    const messages = await chat
       .find({
         roomId: roomid,
         //senderId: senderid,
@@ -37,10 +37,10 @@ const chatreadController = async (
       .limit(index)
       .exec();
 
-    return message;
+    return messages;
   } catch (error) {
     console.error(error);
-    throw new Error("An error occurred while fetching the latest message");
+    throw new Error("An error occurred while fetching the latest messages");
   }
 };
 
@@ -49,11 +49,21 @@ app.use(express.json());
 
 const port = 3000;
 
+// Create HTTP server
+const server = http.createServer(app);
+
+// Set up socket.io
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Adjust this as needed for your setup
+  },
+});
+
 app.get("/", (req, res) => {
   res.send("Hello World!");
 });
 
-// it only write chat with specific roomid
+// Write chat with specific roomid
 app.post("/chat/:senderId/:receiverId/:roomId", async (req, res) => {
   console.log(req.params);
   console.log(req.body);
@@ -71,32 +81,43 @@ app.post("/chat/:senderId/:receiverId/:roomId", async (req, res) => {
   }
 });
 
-// it only reads the sender to reciver date
-app.get(
-  "/chat/:index/:offset/:senderId/:receiverId/:roomId",
-  async (req, res) => {
-    console.log(req.params);
-    try {
-      const chatResponse = await chatreadController(
-        req.params.roomId,
-        req.params.senderId,
-        req.params.receiverId,
-        req.params.index,
-        req.params.offset
-      );
-      res.json({ response: chatResponse });
-    } catch (error) {
-      res.status(500).json({ response: "An error occurred in response" });
-    }
+// Read chat messages with pagination
+app.get("/chat/:index/:offset/:senderId/:receiverId/:roomId", async (req, res) => {
+  console.log(req.params);
+  try {
+    const chatResponse = await chatreadController(
+      req.params.roomId,
+      req.params.senderId,
+      req.params.receiverId,
+      parseInt(req.params.index),
+      parseInt(req.params.offset)
+    );
+    res.json({ response: chatResponse });
+  } catch (error) {
+    res.status(500).json({ response: "An error occurred in response" });
   }
-);
+});
+
+// Handle socket connections
+io.on("connection", (socket) => {
+  console.log("A user connected");
+
+  socket.on("joinRoom", (roomId) => {
+    socket.join(roomId);
+    console.log(`User joined room: ${roomId}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("A user disconnected");
+  });
+});
 
 mongoose
   .connect(
     "your mongo link"
   )
   .then(() => {
-    app.listen(port, () => {
+    server.listen(port, () => {
       console.log(`http://localhost:${port}`);
     });
   });
